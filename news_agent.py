@@ -1,4 +1,4 @@
- import os
+import os
 import json
 import time
 import calendar
@@ -7,11 +7,9 @@ import datetime
 from urllib.parse import quote
 import requests
 import feedparser
-
 def google_news_feed(query, hl="en-US", gl="US", ceid="US:en"):
-    q = quote(query)
+    q = quote(f"{query} when:12h")
     return f"https://news.google.com/rss/search?q={q}&hl={hl}&gl={gl}&ceid={ceid}"
-
 FEEDS = {
     "Film Industry": google_news_feed("film industry news"),
     "Business":       google_news_feed("business news"),
