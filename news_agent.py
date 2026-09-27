@@ -1,4 +1,5 @@
-import os
+ import os
+import re
 import json
 import time
 import calendar
@@ -7,9 +8,11 @@ import datetime
 from urllib.parse import quote
 import requests
 import feedparser
+
 def google_news_feed(query, hl="en-US", gl="US", ceid="US:en"):
     q = quote(f"{query} when:12h")
     return f"https://news.google.com/rss/search?q={q}&hl={hl}&gl={gl}&ceid={ceid}"
+
 FEEDS = {
     "Film Industry": google_news_feed("film industry news"),
     "Business":       google_news_feed("business news"),
@@ -35,6 +38,12 @@ MAX_SEEN_STORED = 5000
 HOURS_WINDOW = 12
 EMBEDS_PER_MESSAGE = 10
 
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; NewsAgentBot/1.0)"}
+OG_IMAGE_RE = re.compile(
+    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+    re.IGNORECASE
+)
+
 def load_seen():
     path = pathlib.Path(SEEN_FILE)
     if path.exists():
@@ -54,6 +63,18 @@ def is_recent(entry, hours=HOURS_WINDOW):
         )
         return (datetime.datetime.utcnow() - published_dt) <= datetime.timedelta(hours=hours)
     return True
+
+def get_og_image(url, timeout=4):
+    if not url:
+        return None
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=timeout)
+        match = OG_IMAGE_RE.search(resp.text[:20000])
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
 
 def scout(feed_name, feed_url):
     parsed = feedparser.parse(feed_url)
@@ -80,13 +101,20 @@ def publish(items):
         print("No new items this run.")
         return
     for batch in chunked(items, EMBEDS_PER_MESSAGE):
-        embeds = [{
-            "title": item["title"][:250],
-            "description": item["summary"],
-            "url": item["link"],
-            "footer": {"text": item["category"]},
-            "color": 3447003,
-        } for item in batch]
+        embeds = []
+        for item in batch:
+            embed = {
+                "title": item["title"][:250],
+                "description": item["summary"],
+                "url": item["link"],
+                "footer": {"text": item["category"]},
+                "color": 3447003,
+            }
+            image_url = get_og_image(item["link"])
+            if image_url:
+                embed["image"] = {"url": image_url}
+            embeds.append(embed)
+
         resp = requests.post(WEBHOOK_URL, json={"embeds": embeds})
         if resp.status_code not in (200, 204):
             print(f"Failed to send batch: {resp.status_code} {resp.text}")
